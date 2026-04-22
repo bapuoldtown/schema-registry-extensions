@@ -54,7 +54,7 @@ public class BlockDeleteExtension implements SchemaRegistryResourceExtension {
     public static class DeleteBlockingFilter implements ContainerRequestFilter {
 
         static final String ERROR_JSON =
-            "{\"error_code\":40500,"
+            "{\"error_code\":405,"
           + "\"message\":\"DELETE blocked by custom JAR extension\","
           + "\"blocked_by\":\"custom-jar-extension\"}";
 
