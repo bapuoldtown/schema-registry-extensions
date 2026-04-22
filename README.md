@@ -135,6 +135,8 @@ to roll out new versions.
 
 ## Testing
 
+### Unit tests
+
 ```bash
 mvn test
 ```
@@ -144,6 +146,68 @@ The test suite covers:
 - Method case-insensitivity (`delete`, `DELETE`)
 - GET/POST/PUT/PATCH/HEAD/OPTIONS pass through
 - Filter doesn't NPE when URI info is null
+
+### Manual testing with cURL
+
+Start the dev environment:
+```bash
+mvn package
+docker compose -f docker-compose.dev.yml up -d --force-recreate
+```
+
+#### 1. Register a schema (POST)
+```bash
+curl -i -X POST -H "Content-Type: application/vnd.schemaregistry.v1+json" \
+  --data '{"schema":"{\"type\":\"string\"}"}' \
+  http://localhost:8081/subjects/test-subject/versions
+```
+
+**Response (✅ allowed):**
+```
+HTTP/1.1 200 OK
+Date: Tue, 21 Apr 2026 13:34:06 GMT
+X-Request-ID: f0c0616d-1364-4bc7-92a4-8939a994624d
+Content-Type: application/vnd.schemaregistry.v1+json
+Content-Length: 8
+
+{"id":1}
+```
+
+#### 2. List subjects (GET)
+```bash
+curl -i http://localhost:8081/subjects
+```
+
+**Response (✅ allowed):**
+```
+HTTP/1.1 200 OK
+Date: Tue, 21 Apr 2026 13:34:19 GMT
+X-Request-ID: 4795a796-7e24-4e2b-a146-4b618a50bf61
+Content-Type: application/vnd.schemaregistry.v1+json
+Content-Length: 16
+
+["test-subject"]
+```
+
+#### 3. Delete a subject (DELETE) — **BLOCKED**
+```bash
+curl -i -X DELETE http://localhost:8081/subjects/test-subject
+```
+
+**Response (❌ blocked by extension):**
+```
+HTTP/1.1 405 Method Not Allowed
+Date: Tue, 21 Apr 2026 13:34:34 GMT
+X-Request-ID: 4c275366-0c3c-4f75-812f-6ac1ab251003
+Allow: GET, POST, PUT
+X-Delete-Blocked: custom-jar-extension
+Content-Type: application/json
+Content-Length: 107
+
+{"error_code":40500,"message":"DELETE blocked by custom JAR extension","blocked_by":"custom-jar-extension"}
+```
+
+✅ Extension working as expected: DELETE returns **405 Method Not Allowed** with proof header `X-Delete-Blocked: custom-jar-extension`
 
 ## Production hardening checklist (not done here)
 
