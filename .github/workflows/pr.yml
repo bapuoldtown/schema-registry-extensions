@@ -1,0 +1,43 @@
+# Runs on every pull request to main.
+# Goal: gate merge on compile + test passing. No publishing.
+name: PR Check
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write   # allow surefire-report to annotate PR
+
+jobs:
+  verify:
+    name: Compile & test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+
+      - name: Compile
+        run: mvn -B -DskipTests compile
+
+      - name: Run tests
+        run: mvn -B verify
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: target/surefire-reports/
+          retention-days: 7
+
+      - name: Verify Dockerfile builds
+        run: docker build -t sr-block-delete:pr-check .

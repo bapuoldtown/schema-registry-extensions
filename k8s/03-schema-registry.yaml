@@ -1,0 +1,61 @@
+# Schema Registry Deployment using the custom ghcr.io image.
+#
+# Replace bapuoldtown/schema-registry-extensions with your GitHub path. Pin to a version tag, never :latest.
+apiVersion: v1
+kind: Service
+metadata:
+  name: schema-registry
+  namespace: schema-registry
+spec:
+  selector: { app: schema-registry }
+  ports:
+    - { name: http, port: 8081, targetPort: 8081 }
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: schema-registry
+  namespace: schema-registry
+  labels:
+    app: schema-registry
+    app.kubernetes.io/name: schema-registry
+    app.kubernetes.io/component: sr
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: schema-registry }
+  template:
+    metadata:
+      labels: { app: schema-registry }
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: schema-registry
+          # >>> UPDATE THIS after first release <<<
+          image: ghcr.io/bapuoldtown/schema-registry-extensions:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8081
+              name: http
+          env:
+            - { name: SCHEMA_REGISTRY_HOST_NAME, valueFrom: { fieldRef: { fieldPath: status.podIP } } }
+            - { name: SCHEMA_REGISTRY_LISTENERS, value: "http://0.0.0.0:8081" }
+            # Point at your real MSK/Kafka in EKS:
+            - { name: SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS, value: "SASL_SSL://b-1.your-msk.kafka.ap-southeast-2.amazonaws.com:9098,..." }
+            - { name: SCHEMA_REGISTRY_KAFKASTORE_SECURITY_PROTOCOL, value: "SASL_SSL" }
+            - { name: SCHEMA_REGISTRY_KAFKASTORE_SASL_MECHANISM, value: "AWS_MSK_IAM" }
+            # RESOURCE_EXTENSION_CLASS and CLASSPATH are already baked into
+            # the image, so no need to repeat them here.
+          readinessProbe:
+            httpGet: { path: /subjects, port: 8081 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /subjects, port: 8081 }
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          resources:
+            requests: { cpu: 500m, memory: 1Gi }
+            limits:   { cpu: 2,    memory: 2Gi }

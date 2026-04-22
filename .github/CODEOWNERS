@@ -1,0 +1,7 @@
+# CODEOWNERS — GitHub uses this to auto-request reviews on PRs.
+# Replace placeholders with real GitHub usernames / teams.
+
+*                   @bapuoldtown
+/src/               @bapuoldtown
+/.github/workflows/ @bapuoldtown
+/k8s/               @bapuoldtown
