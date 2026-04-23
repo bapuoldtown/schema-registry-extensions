@@ -7,7 +7,7 @@
 services:
 
   kafka:
-    image: confluentinc/cp-kafka:7.6.1
+    image: confluentinc/cp-kafka:7.9.2
     hostname: kafka
     environment:
       KAFKA_NODE_ID: 1
@@ -24,9 +24,10 @@ services:
       CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
 
   schema-registry:
-    # Replace bapuoldtown/schema-registry-extensions with your GitHub path after first push to main.
-    # Pin to a version tag (1.0.0) in real deployments — never :latest in prod.
-    image: ghcr.io/bapuoldtown/schema-registry-extensions:latest
+    # Pinned to the matrix-built image for Confluent 7.9.2 (CBA production target).
+    # After first push to main, you can also use :latest which points to the newest
+    # version in the matrix. For prod, always pin to a tag — never :latest.
+    image: ghcr.io/bapuoldtown/schema-registry-extensions:cp-7.9.2
     hostname: schema-registry
     depends_on: [kafka]
     ports:
