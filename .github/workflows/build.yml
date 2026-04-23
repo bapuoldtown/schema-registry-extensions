@@ -1,29 +1,26 @@
-# Runs on every push to main.
-# Goal: full build, push image to ghcr.io tagged main-<sha> and latest.
+# Matrix build — compiles + tests the extension against multiple Confluent
+# Schema Registry versions in parallel. Each version produces:
+#   - One JAR (downloadable as a workflow artifact)
+#   - One Docker image (tagged per version, pushed to GHCR)
+
 name: Build & Push Image
 
 on:
   push:
-    branches: [main]
-    paths-ignore:
-      - '**.md'          # don't rebuild on pure doc changes
-      - 'docs/**'
-  workflow_dispatch:      # allow manual run from Actions UI
-
-permissions:
-  contents: read
-  packages: write        # required to push to ghcr.io
-  id-token: write        # required for cosign signing (future)
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+    branches: [main, 'bump-*', 'test-*']
+  workflow_dispatch:
 
 jobs:
   build-and-push:
-    name: Build & push
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        confluent-version: ["7.6.1", "7.9.2"]
+    name: Build for Confluent ${{ matrix.confluent-version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -34,8 +31,16 @@ jobs:
           java-version: 17
           cache: maven
 
-      - name: Run tests
-        run: mvn -B verify
+      - name: Run tests against Confluent ${{ matrix.confluent-version }}
+        run: mvn -B verify -Dconfluent.version=${{ matrix.confluent-version }}
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: block-delete-extension-confluent-${{ matrix.confluent-version }}
+          path: target/block-delete-extension-*.jar
+          retention-days: 90
+          if-no-files-found: error
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -43,32 +48,33 @@ jobs:
       - name: Log in to ghcr.io
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Compute image tags
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,prefix=main-,format=short
+        id: tags
+        run: |
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          SHA_SHORT=${GITHUB_SHA::7}
+          CV="${{ matrix.confluent-version }}"
+          if [[ "${{ github.ref }}" == "refs/heads/main" && "$CV" == "7.9.2" ]]; then
+            echo "tags=ghcr.io/$REPO_LOWER:latest,ghcr.io/$REPO_LOWER:cp-$CV,ghcr.io/$REPO_LOWER:cp-$CV-$SHA_SHORT" >> $GITHUB_OUTPUT
+          else
+            echo "tags=ghcr.io/$REPO_LOWER:cp-$CV,ghcr.io/$REPO_LOWER:cp-$CV-$SHA_SHORT" >> $GITHUB_OUTPUT
+          fi
 
-      - name: Build & push
+      - name: Build & push image (Confluent ${{ matrix.confluent-version }})
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          build-args: |
+            CONFLUENT_VERSION=${{ matrix.confluent-version }}
+          tags: ${{ steps.tags.outputs.tags }}
 
       - name: Summary
         run: |
-          echo "### Built images" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "### Build complete — Confluent ${{ matrix.confluent-version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**JAR artifact:**  block-delete-extension-confluent-${{ matrix.confluent-version }}" >> $GITHUB_STEP_SUMMARY

@@ -1,45 +1,28 @@
-# ============================================================================
-# Custom Schema Registry image with block-delete extension baked in.
-#
-# Multi-stage build:
-#   Stage 1 (builder)  — compiles the JAR with Maven
-#   Stage 2 (runtime)  — extends Confluent's SR image, copies JAR in
-#
-# Published as ghcr.io/<org>/sr-block-delete:<tag> by GitHub Actions.
-# Consumers (docker compose, EKS Helm charts) just reference the image.
-# ============================================================================
+# Multi-stage Dockerfile — accepts CONFLUENT_VERSION build arg so the
+# matrix CI can build images for multiple SR versions without editing files.
 
-# ---- Stage 1: Build the JAR ----
+ARG CONFLUENT_VERSION=7.9.2
+
+# Stage 1: build the JAR with Maven
 FROM maven:3.9-eclipse-temurin-17 AS builder
-
+ARG CONFLUENT_VERSION
 WORKDIR /build
-# Copy POM first so dependency layer caches between runs
 COPY pom.xml .
-RUN mvn -B -q dependency:go-offline
-
-# Copy source and test code, compile + test + package
 COPY src ./src
-RUN mvn -B -q verify
+RUN mvn -B verify -Dconfluent.version=${CONFLUENT_VERSION}
 
-# ---- Stage 2: Runtime image (extends official Confluent SR) ----
-FROM confluentinc/cp-schema-registry:7.6.1
+# Stage 2: copy the JAR into a real Schema Registry image
+FROM confluentinc/cp-schema-registry:${CONFLUENT_VERSION}
+ARG CONFLUENT_VERSION
+LABEL org.opencontainers.image.title="schema-registry-with-block-delete"
+LABEL org.opencontainers.image.description="Confluent SR ${CONFLUENT_VERSION} with block-delete extension"
+LABEL confluent.version="${CONFLUENT_VERSION}"
 
-# Standard Confluent convention: additional JARs go under /usr/share/java
-# The subdirectory keeps our extension isolated and auditable.
-COPY --from=builder /build/target/block-delete-extension-1.0.0.jar \
-     /usr/share/java/kop-extensions/block-delete-extension.jar
+USER root
+RUN mkdir -p /usr/share/java/kop-extensions
+COPY --from=builder /build/target/block-delete-extension-*.jar /usr/share/java/kop-extensions/block-delete-extension.jar
+RUN chown -R appuser:appuser /usr/share/java/kop-extensions
+USER appuser
 
-# Tell the SR launcher to include our JAR on the classpath.
-# kafka-run-class.sh prepends $CLASSPATH to the default, so our extension
-# class is available for reflective instantiation at startup.
 ENV CLASSPATH="/usr/share/java/kop-extensions/*"
-
-# Auto-activate the extension — no per-deployment config needed.
-# Override with SCHEMA_REGISTRY_RESOURCE_EXTENSION_CLASS="" to disable.
 ENV SCHEMA_REGISTRY_RESOURCE_EXTENSION_CLASS="com.example.schemaregistry.BlockDeleteExtension"
-
-# Image metadata (OCI standard labels — shows up in `docker inspect`)
-LABEL org.opencontainers.image.title="schema-registry-block-delete"
-LABEL org.opencontainers.image.description="Confluent Schema Registry with DELETE-blocking extension"
-LABEL org.opencontainers.image.source="https://github.com/OWNER/REPO"
-LABEL org.opencontainers.image.licenses="MIT"
